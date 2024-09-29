@@ -1,3 +1,4 @@
 transformers==4.30.2
 adaptor==0.2.3
-torch==2.0.1
+torch==2.2.2
+numpy==1.26.4
