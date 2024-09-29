@@ -1,15 +1,19 @@
-from typing import Optional, Dict, Union
+import itertools
+from typing import Optional, Dict, Union, Iterable
 
 import torch
+import torch.nn.functional as F
 from adaptor.objectives.CLM import CausalLanguageModeling
-from transformers import DataCollatorForSeq2Seq, BatchEncoding
+from adaptor.objectives.distillation import Distillation
+from tqdm import tqdm
+from transformers import DataCollatorForSeq2Seq, BatchEncoding, PreTrainedModel, PreTrainedTokenizer
 
 from scripts.objectives.base_overrides import ExperimentOverrides
 
 
-class SoftCLM(CausalLanguageModeling, ExperimentOverrides):
+class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, normalize_similarities: bool = True, topk_norm_tokens: int = 10, **kwargs):
         """
         Refer to the documentation of superclass.
         """
@@ -22,11 +26,118 @@ class SoftCLM(CausalLanguageModeling, ExperimentOverrides):
 
         super().__init__(*args, **kwargs)
 
+        self.dtype = torch.float
+
+        # Add pad token to all models if using pythia
+        if "pythia" in self.compatible_head_model.name_or_path:
+            self.compatible_head_model.pad_token = "<|endoftext|>"
+            self.tokenizer.pad_token = "<|endoftext|>"
+
         # if this is translation objective, tokenization of source and target might vary (can include lang_token_id)
         # if it does not, this will just set unused attribute of tokenizer
         self.collator = DataCollatorForSeq2Seq(self.tokenizer, self.compatible_head_model, pad_to_multiple_of=8)
 
-        # TODO: pre-compute the token similarities in a training corpus
+        with torch.no_grad():
+            eps = 1e-15
+            embeddings = self._compute_embeddings(self._per_split_iterators("train")[0],
+                                                  self.dataset_length["train"],
+                                                  self.tokenizer,
+                                                  self.teacher_model,
+                                                  self.batch_size * 4,
+                                                  self.dtype,
+                                                  init_eps=eps)
+        unseen_embeddings_idx = embeddings.sum(1) < 1e-6  # TODO: parametrize eps
+        mean_seen_embedding = embeddings[~unseen_embeddings_idx].mean(0)
+        embeddings[unseen_embeddings_idx] = mean_seen_embedding  # should not affect the normalization
+
+        self.similarities = (F.normalize(embeddings) @ F.normalize(embeddings).T).contiguous()  # normalized pairwise similarities
+
+        # set similarity to/from unseen tokens to mean -> for similarities normalization
+        mean_seen_similarity = self.similarities[~unseen_embeddings_idx][:, ~unseen_embeddings_idx].mean()
+        self.similarities[unseen_embeddings_idx] = mean_seen_similarity
+        self.similarities[:, unseen_embeddings_idx] = mean_seen_similarity
+
+        # print(unseen_tokens_similarities.max(1))
+        if normalize_similarities:
+            topk_similarities_vals = self.similarities.topk(k=topk_norm_tokens)[0]
+            mins = self.similarities.quantile(0.025, dim=1)
+            # mins = topk_similarities_vals.min(dim=1)[0]
+            maxs = 1
+            # self.similarities -= self.similarities.min(1)[0]
+            # self.similarities /= self.similarities.max(1)[0]
+            self.similarities -= mins
+            self.similarities /= (maxs - mins)  # upper-bound by the self-similarity (always equal to one)
+        # TODO: make sure that after normalization, semantically-equivalent tokens are still largely similar:
+        #  -> see self.similarities[16831, 6968]
+        #  supposedly, without normalization, this objective can not work in a standalone
+
+        unseen_target_sims = torch.eye(self.similarities.shape[0], device=self.similarities.device)[unseen_embeddings_idx]
+
+        # TODO: check that both unseen and seen tokens have high true-token probability
+        self.similarities[unseen_embeddings_idx] = unseen_target_sims  # unseen tokens -> all get one-hot sims
+        self.similarities[~unseen_embeddings_idx][:, unseen_embeddings_idx] = 0  # seen tokens -> unseen tokens get zero
+        self.similarities[self.similarities < 0] = 0
+        print()
+
+    @staticmethod
+    def _compute_embeddings(dataset: Iterable[str],
+                            dataset_length: int,
+                            tokenizer: PreTrainedTokenizer,
+                            model: PreTrainedModel,
+                            infer_batch_size: int,
+                            dtype: torch.dtype = torch.float32,
+                            init_eps: float = 1e-15) -> torch.FloatTensor:
+        # embeddings collect running average of embeddings of output tokens
+        # embeddings = init_eps * torch.rand((model.config.vocab_size, model.config.hidden_size), dtype=dtype)
+        embeddings = torch.zeros((model.config.vocab_size, model.config.hidden_size), dtype=dtype)
+        labels_macro_counts = torch.zeros(model.config.vocab_size, dtype=torch.long)
+
+        for _ in tqdm(range(0, dataset_length, infer_batch_size), total=dataset_length//infer_batch_size,
+                      desc="Generating embeddings"):
+            texts_batch = list(itertools.islice(dataset, infer_batch_size))
+            batch_embeddings = torch.zeros_like(embeddings, dtype=dtype)
+            if not texts_batch:
+                break
+            inputs = tokenizer(list(texts_batch), return_tensors="pt", truncation=True, padding=True).to(model.device)
+            labels = inputs.input_ids[..., 1:].flatten(end_dim=1).contiguous()  # labels are used as embeddings mapping
+            # with torch.no_grad():
+            outputs = model(**inputs, output_hidden_states=True)
+            last_hidden_states = outputs.hidden_states[-1][:, :-1].flatten(end_dim=1).type(dtype)
+
+            # TODO: remove
+            # TODO: it seems that many tokens have really just super similar embeddings
+            # TODO: verify with larger model
+            # "uh" token, should be similar to 16831 ' uh', not to 3 '"'
+            if 6968 in labels:
+                continue
+            if 3 in labels:
+                continue
+
+            # running average:
+            # TODO: if we have doubts about correctness, check this on a toy example
+            # https://stackoverflow.com/questions/57386257/how-can-i-compute-the-mean-of-values-selected-from-a-vector-a-from-an-indexing-v
+            batch_labels_idx, batch_label_counts = labels.unique(return_counts=True)
+
+            # average embeddings in batch
+            labels_embs_micro_avg = batch_embeddings.index_add(0, labels, last_hidden_states)
+
+            labels_embs_micro_avg[batch_labels_idx] /= batch_label_counts.unsqueeze(1)
+            labels_weight_in_macro_avg = batch_label_counts / (batch_label_counts + labels_macro_counts[batch_labels_idx])
+            labels_weight_in_macro_avg = labels_weight_in_macro_avg.type(dtype)
+
+            # labels_weight_in_macro_avg = labels_norm / labels_macro_counts
+            old_embs_weighted = embeddings[batch_labels_idx] * (1 - labels_weight_in_macro_avg.unsqueeze(1))
+            new_embs_weighted = labels_embs_micro_avg[batch_labels_idx] * labels_weight_in_macro_avg.unsqueeze(1)
+            embeddings[batch_labels_idx] = old_embs_weighted + new_embs_weighted
+
+            # incrementally sum the counts of aggregated labels
+            labels_macro_counts.index_add_(0, batch_labels_idx, batch_label_counts)
+
+            if len(texts_batch) < infer_batch_size:
+                break
+        print("Constructed index for %s unique tokens from %s tokens seen in training corpus."
+              % ((labels_macro_counts != 0).sum().item(), labels_macro_counts.sum().item()))
+        return embeddings  # noqa type
 
     def _compute_loss(self,
                       lm_logit_outputs: torch.FloatTensor,
@@ -41,21 +152,27 @@ class SoftCLM(CausalLanguageModeling, ExperimentOverrides):
         """
         # note that currently we do not ignore padding from the loss, which might be desirable
         # - we have seen this to eliminate repetitive generations at some cases
+        # TODO: try replacing with BCEWithLogitsLoss()
+        # loss_fct = torch.nn.BCEWithLogitsLoss()
         loss_fct = torch.nn.CrossEntropyLoss()
 
         logits_f = lm_logit_outputs.flatten(end_dim=1)
         labels_f = labels.flatten(end_dim=1)
 
-        # TODO: construct training labels from the similarity of all X current_label
+        soft_labels = self.similarities[labels_f]
 
+        # TODO: construct training labels from the similarity of embeddings of {all} X {current_label}
+        #  -> simply slice similarity matrix on a current next token and use that as target distribution
 
-        if lm_logit_outputs.shape == labels.shape:
-            # for non-discrete targets, torch loss will not ignore the ignore_index targets,
-            # so we exclude them manually
-            ignore_idx = (labels_f == ignore_index).all(-1)
-            logits_f = logits_f[~ignore_idx]
-            labels_f = labels_f[~ignore_idx]
+        # if lm_logit_outputs.shape == labels.shape:
+        # for non-discrete targets, torch loss will not ignore the ignore_index targets,
+        # so we exclude them manually
+        ignored_idx = (labels_f == ignore_index)
+        logits_f = logits_f[~ignored_idx]
+        soft_labels = soft_labels[~ignored_idx]
 
-        lm_loss = loss_fct(logits_f, labels_f)
+        lm_loss = loss_fct(logits_f.type(self.dtype), soft_labels)
+        # TODO: try with normalization:
+        # lm_loss = loss_fct(logits_f.type(self.dtype), F.normalize(soft_labels))
 
         return lm_loss
