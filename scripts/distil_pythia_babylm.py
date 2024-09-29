@@ -10,6 +10,7 @@ from objectives.base_overrides import ExperimentOverrides
 from objectives.soft_clm import SoftCLM
 
 model_path = "EleutherAI/pythia-160m"
+# model_path = "EleutherAI/pythia-14m"
 
 lang_module = LangModule(model_path)
 # lang_module = LangModule("facebook/nllb-200-distilled-600M")
