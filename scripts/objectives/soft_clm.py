@@ -45,7 +45,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
                                                   self.teacher_model,
                                                   self.batch_size * 4,
                                                   self.dtype,
-                                                  init_eps=eps)
+                                                  init_eps=eps).to("cpu")
         unseen_embeddings_idx = embeddings.sum(1) < 1e-6  # TODO: parametrize eps
         mean_seen_embedding = embeddings[~unseen_embeddings_idx].mean(0)
         embeddings[unseen_embeddings_idx] = mean_seen_embedding  # should not affect the normalization
@@ -77,6 +77,8 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         self.similarities[unseen_embeddings_idx] = unseen_target_sims  # unseen tokens -> all get one-hot sims
         self.similarities[~unseen_embeddings_idx][:, unseen_embeddings_idx] = 0  # seen tokens -> unseen tokens get zero
         self.similarities[self.similarities < 0] = 0
+
+        self.similarities = self.similarities.to(teacher_model.device)
         print()
 
     @staticmethod
@@ -89,29 +91,21 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
                             init_eps: float = 1e-15) -> torch.FloatTensor:
         # embeddings collect running average of embeddings of output tokens
         # embeddings = init_eps * torch.rand((model.config.vocab_size, model.config.hidden_size), dtype=dtype)
-        embeddings = torch.zeros((model.config.vocab_size, model.config.hidden_size), dtype=dtype)
-        labels_macro_counts = torch.zeros(model.config.vocab_size, dtype=torch.long)
+        embeddings = torch.zeros((model.config.vocab_size, model.config.hidden_size), dtype=dtype, device=model.device)
+        labels_macro_counts = torch.zeros(model.config.vocab_size, dtype=torch.long, device=model.device)
 
         for _ in tqdm(range(0, dataset_length, infer_batch_size), total=dataset_length//infer_batch_size,
                       desc="Generating embeddings"):
             texts_batch = list(itertools.islice(dataset, infer_batch_size))
-            batch_embeddings = torch.zeros_like(embeddings, dtype=dtype)
+            batch_embeddings = torch.zeros_like(embeddings, dtype=dtype, device=model.device)
             if not texts_batch:
+                print("Skipping empty batch")
                 break
             inputs = tokenizer(list(texts_batch), return_tensors="pt", truncation=True, padding=True).to(model.device)
             labels = inputs.input_ids[..., 1:].flatten(end_dim=1).contiguous()  # labels are used as embeddings mapping
             # with torch.no_grad():
             outputs = model(**inputs, output_hidden_states=True)
             last_hidden_states = outputs.hidden_states[-1][:, :-1].flatten(end_dim=1).type(dtype)
-
-            # TODO: remove
-            # TODO: it seems that many tokens have really just super similar embeddings
-            # TODO: verify with larger model
-            # "uh" token, should be similar to 16831 ' uh', not to 3 '"'
-            if 6968 in labels:
-                continue
-            if 3 in labels:
-                continue
 
             # running average:
             # TODO: if we have doubts about correctness, check this on a toy example
@@ -157,7 +151,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         loss_fct = torch.nn.CrossEntropyLoss()
 
         logits_f = lm_logit_outputs.flatten(end_dim=1)
-        labels_f = labels.flatten(end_dim=1)
+        labels_f = labels[..., 1:].flatten(end_dim=1)
 
         soft_labels = self.similarities[labels_f]
 
