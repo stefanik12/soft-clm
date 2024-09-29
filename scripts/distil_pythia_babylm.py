@@ -49,8 +49,8 @@ train_objectives = [TrainingObj(**objective_kwargs)]
 if train_objectives[0].tokenizer.pad_token is None and train_objectives[0].tokenizer.pad_token_id is None:
     train_objectives[0].compatible_head_model.pad_token = "<|endoftext|>"
     train_objectives[0].tokenizer.pad_token = "<|endoftext|>"
-if hasattr(train_objectives[0], "teacher_model") and "pythia" in train_objectives[0].teacher_model.name_or_path:
-    train_objectives[0].teacher_model.pad_token = "<|endoftext|>"
+# if hasattr(train_objectives[0], "teacher_model") and "pythia" in train_objectives[0].teacher_model.name_or_path:
+#     train_objectives[0].teacher_model.pad_token = "<|endoftext|>"
 
 
 training_arguments = AdaptationArguments(output_dir="adaptation_output_dir",
