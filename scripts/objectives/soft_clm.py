@@ -102,7 +102,8 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
             if not texts_batch:
                 print("Skipping empty batch")
                 break
-            inputs = tokenizer(list(texts_batch), return_tensors="pt", truncation=True, padding=True).to(model.device)
+            inputs = tokenizer(list(texts_batch), return_tensors="pt", truncation=True,
+                               padding=True, max_length=2048).to(model.device)
             labels = inputs.input_ids[..., 1:].flatten(end_dim=1).contiguous()  # labels are used as embeddings mapping
             # with torch.no_grad():
             outputs = model(**inputs, output_hidden_states=True)
