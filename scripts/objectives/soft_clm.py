@@ -106,6 +106,10 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
             labels = inputs.input_ids[..., 1:].flatten(end_dim=1).contiguous()  # labels are used as embeddings mapping
             # with torch.no_grad():
             outputs = model(**inputs, output_hidden_states=True)
+            # TODO: on 100k set, this raises:
+            #    File "python3.10/site-packages/transformers/models/gpt_neox/modeling_gpt_neox.py", line 230, in _attn
+            #     attn_scores = torch.where(causal_mask, attn_scores, mask_value)
+            #  RuntimeError: The size of tensor a (2048) must match the size of tensor b (2258) at non-singleton dimension 3
             last_hidden_states = outputs.hidden_states[-1][:, :-1].flatten(end_dim=1).type(dtype)
 
             # running average:
@@ -148,10 +152,10 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         # note that currently we do not ignore padding from the loss, which might be desirable
         # - we have seen this to eliminate repetitive generations at some cases
         # TODO: try replacing with BCEWithLogitsLoss()
-        # loss_fct = torch.nn.BCEWithLogitsLoss()
-        loss_fct = torch.nn.CrossEntropyLoss()
+        loss_fct = torch.nn.BCEWithLogitsLoss()
+        # loss_fct = torch.nn.CrossEntropyLoss()
 
-        logits_f = lm_logit_outputs.flatten(end_dim=1)
+        logits_f = lm_logit_outputs[..., :-1, :].flatten(end_dim=1)
         labels_f = labels[..., 1:].flatten(end_dim=1)
 
         soft_labels = self.similarities[labels_f]
@@ -166,7 +170,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         logits_f = logits_f[~ignored_idx]
         soft_labels = soft_labels[~ignored_idx]
 
-        lm_loss = loss_fct(logits_f.type(self.dtype), soft_labels)
+        lm_loss = loss_fct(logits_f, soft_labels)
         # TODO: try with normalization:
         # lm_loss = loss_fct(logits_f.type(self.dtype), F.normalize(soft_labels))
 
