@@ -79,6 +79,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         self.similarities[self.similarities < 0] = 0
 
         self.similarities = self.similarities.to(self.teacher_model.device)
+        self.teacher_model = None  # deallocate object to free up memory
         print()
 
     @staticmethod
