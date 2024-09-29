@@ -2,11 +2,24 @@ from typing import Optional, Dict, Any
 
 import torch
 from adaptor.lang_module import LangModule
+from adaptor.objectives.CLM import DataCollatorForCausalLM
 from adaptor.objectives.objective_base import Objective
 from adaptor.objectives.seq2seq import Sequence2Sequence, SequentialMixin
 
 
 class ExperimentOverrides(Objective):
+
+    def __init__(self,
+                 *args,
+                 **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.collator = DataCollatorForCausalLM(self.tokenizer, self.compatible_head_model)
+
+        if "pythia" in self.compatible_head_model.name_or_path:
+            self.compatible_head_model.pad_token = "<|endoftext|>"
+            self.tokenizer.pad_token = "<|endoftext|>"
+            self.tokenizer.model_max_length = self.compatible_head_model.config.max_position_embeddings
 
     def register_compatible_head_model(self,
                                        lang_module: LangModule,
@@ -23,3 +36,5 @@ class ExperimentOverrides(Objective):
         #     "see e.g. \ntransformers.BartModel." % self
 
         return head_module
+
+
