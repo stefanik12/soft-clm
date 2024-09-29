@@ -78,7 +78,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         self.similarities[~unseen_embeddings_idx][:, unseen_embeddings_idx] = 0  # seen tokens -> unseen tokens get zero
         self.similarities[self.similarities < 0] = 0
 
-        self.similarities = self.similarities.to(teacher_model.device)
+        self.similarities = self.similarities.to(self.teacher_model.device)
         print()
 
     @staticmethod
