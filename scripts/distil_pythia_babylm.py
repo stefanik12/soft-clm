@@ -1,3 +1,4 @@
+import torch
 import transformers
 from adaptor.adapter import Adapter
 from adaptor.lang_module import LangModule
@@ -28,6 +29,8 @@ class DistilledCLM(BaselineCLM, Distillation):
 
 TrainingObj = SoftCLM
 
+device = "cuda" if torch.cuda.is_available() else "cpu"
+
 objective_kwargs = {
     "lang_module": lang_module,
     "batch_size": 4,
@@ -35,7 +38,7 @@ objective_kwargs = {
     "val_texts_or_path": "data/dev/all_shuf_1k_nonempty.dev",
     "source_lang_id": "eng_Latn",
     "target_lang_id": "eng_Latn",
-    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(model_path)
+    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(model_path).to(device)
 }
 if TrainingObj == BaselineCLM:
     del objective_kwargs["teacher_model"]
@@ -59,7 +62,8 @@ training_arguments = AdaptationArguments(output_dir="adaptation_output_dir",
                                          evaluation_strategy="steps",
                                          logging_steps=10,
                                          num_train_epochs=2,
-                                         no_cuda=True)
+                                         no_cuda=True if device == "cpu" else False,
+                                         )
 schedule = ParallelSchedule(train_objectives, training_arguments)
 
 adapter = Adapter(lang_module, schedule, training_arguments)
