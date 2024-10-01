@@ -43,7 +43,7 @@ objective_kwargs = {
     "lang_module": lang_module,
     "batch_size": args.batch_size,
     "texts_or_path": "data/train_10M/all_shuf_1k_nonempty.train"
-                     if device == "cpu" else "data/train_10M/all_shuf_1k_nonempty.train",
+                     if device == "cpu" else "data/train_10M/all_shuf_nonempty.train",
     "val_texts_or_path": "data/dev/all_shuf_1k_nonempty.dev",
     "source_lang_id": "eng_Latn",
     "target_lang_id": "eng_Latn",
