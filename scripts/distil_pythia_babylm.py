@@ -1,47 +1,59 @@
+# TODO: tomorrow:
+#  sort out inheritance with new collator to soft_clm
+#  merge distributed training
+
+import argparse
+
 import torch
 import transformers
 from adaptor.adapter import Adapter
 from adaptor.lang_module import LangModule
-from adaptor.objectives.CLM import CausalLanguageModeling
-from adaptor.objectives.distillation import Distillation
 from adaptor.schedules import ParallelSchedule
 from adaptor.utils import StoppingStrategy, AdaptationArguments
 
-from objectives.base_overrides import ExperimentOverrides
+from objectives.base_overrides import DistilledCLM, BaselineCLM
 from objectives.soft_clm import SoftCLM
 
-model_path = "EleutherAI/pythia-160m"
+torch.multiprocessing.set_start_method('spawn')
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--objective", help="Objective of training. One of `soft-clm`, `distilled-clm`, `clm`",
+                    required=True, type=str)
+parser.add_argument("--base_model", help="A model to initialize the training with", required=True, type=str)
+parser.add_argument("--teacher_model", help="Teacher model", type=str, default="")
+parser.add_argument("--batch_size", help="Used batch size", type=int, default=4)
+parser.add_argument("--batch_aggregation", help="Batch aggregation", type=int, default=2)
+args = parser.parse_args()
+
+# model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
 
-lang_module = LangModule(model_path)
+lang_module = LangModule(args.base_model)
 # lang_module = LangModule("facebook/nllb-200-distilled-600M")
 
 
 # lang_module = LangModule("stas/mt5-tiny-random")
 
-class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
-    pass
 
-
-class DistilledCLM(BaselineCLM, Distillation):
-    pass
-
-
-TrainingObj = SoftCLM
+TrainingObj = SoftCLM if args.objective == "soft-clm" else DistilledCLM if args.objective == "distilled-clm" else BaselineCLM
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 objective_kwargs = {
     "lang_module": lang_module,
-    "batch_size": 4,
-    "texts_or_path": "data/train_10M/all_shuf_1k_nonempty.train",
+    "batch_size": args.batch_size,
+    "texts_or_path": "data/train_10M/all_shuf_1k_nonempty.train"
+                     if device == "cpu" else "data/train_10M/all_shuf_1k_nonempty.train",
     "val_texts_or_path": "data/dev/all_shuf_1k_nonempty.dev",
     "source_lang_id": "eng_Latn",
     "target_lang_id": "eng_Latn",
-    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(model_path).to(device)
+    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(args.teacher_model).to(device)
 }
-if TrainingObj == BaselineCLM:
+if args.objective == "clm":
     del objective_kwargs["teacher_model"]
+    extra_eval_objectives = []
+else:
+    extra_eval_objectives = [BaselineCLM(**{k: v for k, v in objective_kwargs.items() if k != "teacher_model"})]
 
 train_objectives = [TrainingObj(**objective_kwargs)]
 
@@ -57,16 +69,23 @@ training_arguments = AdaptationArguments(output_dir="adaptation_output_dir",
                                          stopping_strategy=StoppingStrategy.ALL_OBJECTIVES_CONVERGED,
                                          do_train=True,
                                          do_eval=True,
-                                         gradient_accumulation_steps=1,
-                                         eval_steps=10000,
+                                         gradient_accumulation_steps=args.batch_aggregation,
+                                         eval_steps=2000,
                                          evaluation_strategy="steps",
-                                         logging_steps=10,
-                                         num_train_epochs=2,
+                                         logging_steps=1000,
+                                         num_train_epochs=5,
+                                         warmup_steps=1000,
+                                         learning_rate=4e-4,
+                                         save_steps=10000,
+                                         bf16=False if device == "cpu" else False,
                                          no_cuda=True if device == "cpu" else False,
                                          )
-schedule = ParallelSchedule(train_objectives, training_arguments)
+schedule = ParallelSchedule(train_objectives, training_arguments, extra_eval_objectives)
 
 adapter = Adapter(lang_module, schedule, training_arguments)
+
+lang_module.reinitialize()
+
 adapter.train()
 
 print("Done")

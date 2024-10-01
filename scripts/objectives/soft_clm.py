@@ -28,12 +28,6 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
 
         self.dtype = torch.float
 
-        # Add pad token to all models if using pythia
-        if "pythia" in self.compatible_head_model.name_or_path:
-            self.compatible_head_model.pad_token = "<|endoftext|>"
-            self.tokenizer.pad_token = "<|endoftext|>"
-            self.tokenizer.model_max_length = self.compatible_head_model.config.max_position_embeddings
-
         # if this is translation objective, tokenization of source and target might vary (can include lang_token_id)
         # if it does not, this will just set unused attribute of tokenizer
         self.collator = DataCollatorForSeq2Seq(self.tokenizer, self.compatible_head_model, pad_to_multiple_of=8)
@@ -44,7 +38,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
                                                   self.dataset_length["train"],
                                                   self.tokenizer,
                                                   self.teacher_model,
-                                                  self.batch_size * 2,
+                                                  self.batch_size,
                                                   self.dtype,
                                                   init_eps=eps).to("cpu")
         unseen_embeddings_idx = embeddings.sum(1) < 1e-6  # TODO: parametrize eps
