@@ -117,8 +117,9 @@ class NewDataCollatorForCausalLM(DataCollatorForSeq2Seq):
         pad_id = self.model.config.pad_token_id if self.model.config.pad_token_id is not None else 0
 
         # CLM -> shift input one token to the right
-        out_features["labels"] = out_features["input_ids"].roll(-1, dims=1)
-        out_features["labels"][..., -1] = self.model.config.eos_token_id
+        # out_features["labels"] = out_features["input_ids"].roll(-1, dims=1)
+        # out_features["labels"][..., -1] = self.model.config.eos_token_id
+        out_features["labels"] = out_features["input_ids"]
         return out_features
 
 
@@ -144,11 +145,12 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
 
         :return: a single-item torch tensor with registered grad_fn.
         """
-        # custom implementation -> labels are already shifted left from the Collator above
-
-        # only Flatten the batch
+        shift_logits = logit_outputs[..., :-1, :].contiguous()
+        # Shifted labels
+        shift_labels = labels[..., 1:].contiguous()
+        # Flatten the tokens
         loss_fct = CrossEntropyLoss()
-        loss = loss_fct(logit_outputs.view(-1, logit_outputs.size(-1)), labels.view(-1))
+        loss = loss_fct(shift_logits.view(-1, shift_logits.size(-1)), shift_labels.view(-1))
 
         return loss
 
