@@ -43,6 +43,7 @@ class ExperimentOverrides(Objective):
 
 
 class NewDataCollatorForCausalLM(DataCollatorForSeq2Seq):
+    # TODO: this needs to be merged into adaptor when it starts working (after proper celebration)
 
     @staticmethod
     def shift_tokens_right(input_ids: torch.Tensor, pad_token_id: int, decoder_start_token_id: int):
@@ -119,7 +120,12 @@ class NewDataCollatorForCausalLM(DataCollatorForSeq2Seq):
         # CLM -> shift input one token to the right
         # out_features["labels"] = out_features["input_ids"].roll(-1, dims=1)
         # out_features["labels"][..., -1] = self.model.config.eos_token_id
-        out_features["labels"] = out_features["input_ids"]
+
+        labels = out_features["input_ids"].clone()
+        if self.tokenizer.pad_token_id is not None:
+            labels[labels == self.tokenizer.pad_token_id] = -100
+        out_features["labels"] = labels
+
         return out_features
 
 
