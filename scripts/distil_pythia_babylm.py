@@ -1,6 +1,7 @@
 # TODO: tomorrow:
 #  sort out inheritance with new collator to soft_clm
 #  merge distributed training
+#  make it running on lumi
 
 import argparse
 
@@ -23,6 +24,7 @@ parser.add_argument("--base_model", help="A model to initialize the training wit
 parser.add_argument("--teacher_model", help="Teacher model", type=str, default="")
 parser.add_argument("--batch_size", help="Used batch size", type=int, default=4)
 parser.add_argument("--batch_aggregation", help="Batch aggregation", type=int, default=2)
+parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
 args = parser.parse_args()
 
 # model_path = "EleutherAI/pythia-160m"
@@ -70,7 +72,7 @@ training_arguments = AdaptationArguments(output_dir="adaptation_output_dir",
                                          do_train=True,
                                          do_eval=True,
                                          gradient_accumulation_steps=args.batch_aggregation,
-                                         eval_steps=2000,
+                                         eval_steps=args.eval_steps,
                                          evaluation_strategy="steps",
                                          logging_steps=1000,
                                          num_train_epochs=5,
