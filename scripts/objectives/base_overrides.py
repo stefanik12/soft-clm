@@ -117,10 +117,7 @@ class NewDataCollatorForCausalLM(DataCollatorForSeq2Seq):
         bos_id = self.model.config.bos_token_id if self.model.config.bos_token_id is not None else 0
         pad_id = self.model.config.pad_token_id if self.model.config.pad_token_id is not None else 0
 
-        # CLM -> shift input one token to the right
-        # out_features["labels"] = out_features["input_ids"].roll(-1, dims=1)
-        # out_features["labels"][..., -1] = self.model.config.eos_token_id
-
+        # no shifting of the labels here: this happens in the corresponding loss fn
         labels = out_features["input_ids"].clone()
         if self.tokenizer.pad_token_id is not None:
             labels[labels == self.tokenizer.pad_token_id] = -100
@@ -161,6 +158,6 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
         return loss
 
 
-class DistilledCLM(BaselineCLM, Distillation):
+class DistilledCLM(Distillation, BaselineCLM):
     pass
 
