@@ -28,7 +28,8 @@ class LMHarnessEvaluator(EvaluatorBase):
                  tokenizer: PreTrainedTokenizer,
                  dataset: AdaptationDataset) -> Dict[str, float]:
 
-        wrapped_model = HFLM(model, backend="causal", tokenizer=tokenizer, dtype=model.dtype)
+        wrapped_model = HFLM(model, backend="causal", tokenizer=tokenizer, dtype=model.dtype,
+                             batch_size=self.evaluator_kwargs.get("batch_size", 1))
 
         results = evaluator.simple_evaluate(model=wrapped_model, device=model.device, **self.evaluator_kwargs)
 
