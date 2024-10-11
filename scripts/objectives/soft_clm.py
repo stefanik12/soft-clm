@@ -8,7 +8,7 @@ from adaptor.objectives.distillation import Distillation
 from tqdm import tqdm
 from transformers import DataCollatorForSeq2Seq, BatchEncoding, PreTrainedModel, PreTrainedTokenizer
 
-from scripts.objectives.base_overrides import ExperimentOverrides
+from objectives.base_overrides import ExperimentOverrides
 
 
 class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
@@ -102,10 +102,6 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
             labels = inputs.input_ids[..., 1:].flatten(end_dim=1).contiguous()  # labels are used as embeddings mapping
             # with torch.no_grad():
             outputs = model(**inputs, output_hidden_states=True)
-            # TODO: on 100k set, this raises:
-            #    File "python3.10/site-packages/transformers/models/gpt_neox/modeling_gpt_neox.py", line 230, in _attn
-            #     attn_scores = torch.where(causal_mask, attn_scores, mask_value)
-            #  RuntimeError: The size of tensor a (2048) must match the size of tensor b (2258) at non-singleton dimension 3
             last_hidden_states = outputs.hidden_states[-1][:, :-1].flatten(end_dim=1).type(dtype)
 
             # running average:

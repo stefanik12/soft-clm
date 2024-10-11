@@ -12,6 +12,7 @@ from adaptor.lang_module import LangModule
 from adaptor.schedules import ParallelSchedule
 from adaptor.utils import StoppingStrategy, AdaptationArguments
 
+from evaluators import LMHarnessEvaluator
 from objectives.base_overrides import DistilledCLM, BaselineCLM
 from objectives.soft_clm import SoftCLM
 
@@ -57,7 +58,9 @@ if args.objective == "clm":
 else:
     extra_eval_objectives = [BaselineCLM(**{k: v for k, v in objective_kwargs.items() if k != "teacher_model"})]
 
-train_objectives = [TrainingObj(**objective_kwargs)]
+evaluators = LMHarnessEvaluator(tasks=['blimp_filtered'])
+
+train_objectives = [TrainingObj(**objective_kwargs, val_evaluators=[evaluators])]
 
 # Add pad token to all models if using pythia
 if train_objectives[0].tokenizer.pad_token is None and train_objectives[0].tokenizer.pad_token_id is None:
