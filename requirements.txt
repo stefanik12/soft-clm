@@ -1,5 +1,5 @@
 transformers==4.30.2
-adaptor==0.2.3
+git+https://github.com/gaussalgo/adaptor.git@modular-objectives
 torch==2.2.2
-git+https://github.com/babylm/evaluation-pipeline-2024.git
+git+https://github.com/stefanik12/evaluation-pipeline-2024.git
 numpy==1.26.4
