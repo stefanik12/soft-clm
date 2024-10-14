@@ -50,8 +50,11 @@ objective_kwargs = {
     "val_texts_or_path": args.val_texts,
     "source_lang_id": "eng_Latn",
     "target_lang_id": "eng_Latn",
-    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(args.teacher_model).to(device)
+    "teacher_model": transformers.AutoModelForCausalLM.from_pretrained(args.teacher_model)
 }
+
+if torch.cuda.is_available():
+    objective_kwargs["teacher_model"] = objective_kwargs["teacher_model"].to("cuda")
 
 evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered'], batch_size=args.batch_size,
                                 debug_mode=args.base_model == "EleutherAI/pythia-14m")
