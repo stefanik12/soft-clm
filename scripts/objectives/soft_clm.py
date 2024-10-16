@@ -13,7 +13,7 @@ from objectives.base_overrides import ExperimentOverrides
 
 class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
 
-    def __init__(self, *args, normalize_similarities: bool = True, topk_norm_tokens: int = 10, **kwargs):
+    def __init__(self, *args, normalize_similarities: bool = True, similarities_weight: float = 1.0, **kwargs):
         """
         Refer to the documentation of superclass.
         """
@@ -54,7 +54,6 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
 
         # print(unseen_tokens_similarities.max(1))
         if normalize_similarities:
-            topk_similarities_vals = self.similarities.topk(k=topk_norm_tokens)[0]
             mins = self.similarities.quantile(0.025, dim=1)
             # mins = topk_similarities_vals.min(dim=1)[0]
             maxs = 1
@@ -72,6 +71,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         self.similarities[unseen_embeddings_idx] = unseen_target_sims  # unseen tokens -> all get one-hot sims
         self.similarities[~unseen_embeddings_idx][:, unseen_embeddings_idx] = 0  # seen tokens -> unseen tokens get zero
         self.similarities[self.similarities < 0] = 0
+        self.similarities = self.similarities * similarities_weight
 
         self.similarities = self.similarities.to(self.teacher_model.device)
         self.teacher_model = None  # deallocate object to free up memory
@@ -151,6 +151,7 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         labels_f = labels[..., 1:].flatten(end_dim=1)
 
         soft_labels = self.similarities[labels_f]
+        soft_labels[labels_f] = 1
 
         # TODO: construct training labels from the similarity of embeddings of {all} X {current_label}
         #  -> simply slice similarity matrix on a current next token and use that as target distribution
