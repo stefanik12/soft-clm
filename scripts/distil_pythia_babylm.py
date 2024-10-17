@@ -25,7 +25,7 @@ parser.add_argument("--base_model", help="A model to initialize the training wit
 parser.add_argument("--output_dir_root", help="A root dir for training checkpoints", required=True, type=str)
 parser.add_argument("--teacher_model", help="Teacher model", type=str, default="")
 parser.add_argument("--batch_size", help="Used batch size", type=int, default=4)
-parser.add_argument("--lr", help="Used batch size", type=int, default=3e-4)
+parser.add_argument("--lr", help="Used batch size", type=float, default=3e-4)
 parser.add_argument("--batch_aggregation", help="Batch aggregation", type=int, default=2)
 parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
 parser.add_argument("--train_texts", help="Training texts", type=str)
