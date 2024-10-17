@@ -151,7 +151,6 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         labels_f = labels[..., 1:].flatten(end_dim=1)
 
         soft_labels = self.similarities[labels_f]
-        soft_labels[labels_f] = 1
 
         # TODO: construct training labels from the similarity of embeddings of {all} X {current_label}
         #  -> simply slice similarity matrix on a current next token and use that as target distribution
@@ -162,6 +161,8 @@ class SoftCLM(CausalLanguageModeling, Distillation, ExperimentOverrides):
         ignored_idx = (labels_f == ignore_index)
         logits_f = logits_f[~ignored_idx]
         soft_labels = soft_labels[~ignored_idx]
+
+        soft_labels[:, labels_f[ignored_idx]] = 1  # invariant: correct token always gets prob=1
 
         lm_loss = loss_fct(logits_f, soft_labels)
         # TODO: try with normalization:

@@ -30,6 +30,7 @@ parser.add_argument("--batch_aggregation", help="Batch aggregation", type=int, d
 parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
 parser.add_argument("--train_texts", help="Training texts", type=str)
 parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
+parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
 
 # TODO: this would be nice, but requires nontrivial rewrite of lm_eval.evaluator.simple_evaluate:
 # parser.add_argument("--eval_tasks_root", help="Root directory of lm_eval's evaluation tasks", type=str)
@@ -38,6 +39,11 @@ args = parser.parse_args()
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
+
+# debugging probabilities:
+# inputs = tokenizer("Cheryl isn't insulting", return_tensors="pt")  # -> herself
+# outputs = model(**inputs)
+# sorted(zip(outputs.logits[0, -1].softmax(dim=-1), tokenizer.vocab), reverse=True)
 
 lang_module = LangModule(args.base_model)
 
@@ -54,7 +60,7 @@ objective_kwargs = {
 }
 
 if torch.cuda.is_available():
-    objective_kwargs["teacher_model"] = objective_kwargs["teacher_model"].to("cuda")
+    objective_kwargs["teacher_model"] = objective_kwargs["teacher_model"].to("cuda:%s" % os.environ.get("LOCAL_RANK", 0))
 
 evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered'], batch_size=args.batch_size,
                                 debug_mode=args.base_model == "EleutherAI/pythia-14m")
@@ -63,19 +69,18 @@ train_objectives = []
 extra_eval_objectives = []
 
 if "soft-clm" in args.objective:
-    train_objectives.append(SoftCLM(**objective_kwargs, val_evaluators=[evaluators]))
+    train_objectives.append(SoftCLM(**objective_kwargs, val_evaluators=[evaluators], similarities_weight=args.soft_clm_sim_weight))
 elif "distilled-clm" in args.objective:
     train_objectives.append(DistilledCLM(**objective_kwargs, val_evaluators=[evaluators]))
 
 baseline_kwargs = {k: v for k, v in objective_kwargs.items() if k != "teacher_model"}
 if not train_objectives:
     # no other training objectives -> avoid duplicate evaluations
-    baseline_kwargs["val_evaluators"] = evaluators
+    baseline_kwargs["val_evaluators"] = [evaluators]
 
 baseline_clm_obj = BaselineCLM(**baseline_kwargs)
 
-if args.objective in ["clm", "clm+soft-clm"]:
-    # training objectives include simple clm
+if args.objective in ["clm", "clm+soft-clm", "clm+distilled-clm"]:
     train_objectives.append(baseline_clm_obj)
 else:
     extra_eval_objectives.append(baseline_clm_obj)
@@ -90,7 +95,7 @@ if train_objectives[0].tokenizer.pad_token is None and train_objectives[0].token
 
 
 training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir_root,
-                                                                 "%s_checkpoints" % "+".join(str(o for o in train_objectives))),
+                                                                 "%s_checkpoints" % "+".join([str(o) for o in train_objectives])),
                                          stopping_strategy=StoppingStrategy.ALL_OBJECTIVES_CONVERGED,
                                          do_train=True,
                                          do_eval=True,
@@ -101,7 +106,8 @@ training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir
                                          num_train_epochs=5,
                                          warmup_steps=1000,
                                          learning_rate=args.lr,
-                                         save_steps=10000,
+                                         save_steps=5000,
+                                         # note that on lumi, we overrode transformers.**.is_torch_bf16_gpu_available
                                          bf16=torch.cuda.is_available(),
                                          no_cuda=not torch.cuda.is_available(),
                                          )
