@@ -31,19 +31,16 @@ parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
 parser.add_argument("--train_texts", help="Training texts", type=str)
 parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
 parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
+parser.add_argument("--teacher_forced_distillation", help="Set probs of true toked in distillation to one.", type=str, default="False")
 
 # TODO: this would be nice, but requires nontrivial rewrite of lm_eval.evaluator.simple_evaluate:
 # parser.add_argument("--eval_tasks_root", help="Root directory of lm_eval's evaluation tasks", type=str)
 
 args = parser.parse_args()
+args.teacher_forced_distillation = args.teacher_forced_distillation.lower() != "false"
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
-
-# debugging probabilities:
-# inputs = tokenizer("Cheryl isn't insulting", return_tensors="pt")  # -> herself
-# outputs = model(**inputs)
-# sorted(zip(outputs.logits[0, -1].softmax(dim=-1), tokenizer.vocab), reverse=True)
 
 lang_module = LangModule(args.base_model)
 
@@ -69,9 +66,11 @@ train_objectives = []
 extra_eval_objectives = []
 
 if "soft-clm" in args.objective:
-    train_objectives.append(SoftCLM(**objective_kwargs, val_evaluators=[evaluators], similarities_weight=args.soft_clm_sim_weight))
+    train_objectives.append(SoftCLM(**objective_kwargs, val_evaluators=[evaluators],
+                                    similarities_weight=args.soft_clm_sim_weight))
 elif "distilled-clm" in args.objective:
-    train_objectives.append(DistilledCLM(**objective_kwargs, val_evaluators=[evaluators]))
+    train_objectives.append(DistilledCLM(**objective_kwargs, val_evaluators=[evaluators],
+                                         force_true_tokens=args.teacher_forced_distillation))
 
 baseline_kwargs = {k: v for k, v in objective_kwargs.items() if k != "teacher_model"}
 if not train_objectives:
@@ -84,6 +83,11 @@ if args.objective in ["clm", "clm+soft-clm", "clm+distilled-clm"]:
     train_objectives.append(baseline_clm_obj)
 else:
     extra_eval_objectives.append(baseline_clm_obj)
+
+# debugging probabilities:
+# inputs = lang_module.tokenizer("Cheryl isn't insulting", return_tensors="pt")  # -> herself
+# outputs = train_objectives[0].compatible_head_model(**inputs)
+# sorted(zip(outputs.logits[0, -1].softmax(dim=-1), lang_module.tokenizer.vocab), reverse=True)
 
 
 # Add pad token to all models if using pythia

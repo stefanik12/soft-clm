@@ -1,3 +1,4 @@
+import inspect
 from typing import Any
 from typing import List, Union, Dict, Iterable, Optional
 
@@ -6,6 +7,7 @@ from adaptor.lang_module import LangModule
 from adaptor.objectives.CLM import DataCollatorForCausalLM, CausalLanguageModeling
 from adaptor.objectives.distillation import Distillation
 from adaptor.objectives.objective_base import Objective
+from torch import log_softmax, softmax
 from torch.nn import CrossEntropyLoss
 from transformers import DataCollatorForSeq2Seq, BatchEncoding
 
@@ -133,7 +135,9 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
                  **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.collator = NewDataCollatorForCausalLM(self.tokenizer, self.compatible_head_model)
+        # TODO: caution about the new collator
+        # self.collator = NewDataCollatorForCausalLM(self.tokenizer, self.compatible_head_model)
+        self.collator = DataCollatorForSeq2Seq(self.tokenizer, self.compatible_head_model, pad_to_multiple_of=8)
 
     def _compute_loss(self,
                       logit_outputs: torch.FloatTensor,
@@ -159,5 +163,63 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
 
 
 class DistilledCLM(Distillation, BaselineCLM):
-    pass
+
+    def __init__(self, *args, force_true_tokens: bool = False, **kwargs) -> None:
+        self.force_true_tokens = force_true_tokens
+        super().__init__(*args, **kwargs)
+
+    def _compute_loss(self,
+                      student_logits: torch.FloatTensor,
+                      labels: torch.LongTensor,
+                      inputs: Optional[Union[BatchEncoding, Dict[str, torch.Tensor]]] = None) -> torch.FloatTensor:
+        assert inputs is not None, "Distillation loss requires model inputs to be passed"
+
+        # output logits' loss
+        ce_loss = CrossEntropyLoss()
+
+        teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
+        with torch.no_grad():
+            teacher_outputs = self.teacher_model(**{k: v for k, v in inputs.items() if k in teacher_inputs})
+            teacher_logits = teacher_outputs.logits
+            teacher_probs = softmax(teacher_logits / self.temperature, dim=-1)
+
+        if self.force_true_tokens:
+            # set the probabilities of all true tokens from the reference to one
+            ind0 = torch.arange(inputs["input_ids"].numel())
+            teacher_probs_f = teacher_probs.flatten(end_dim=1)
+            teacher_probs_f[ind0, inputs["input_ids"].flatten()] = 1.
+            teacher_probs = teacher_probs_f.reshape(teacher_probs.shape)
+
+        if self.restrict_loss_to_mask:
+            # pick only the predictions of tokens on the attended positions (i.e. ignore the others)
+            attn_mask_reshaped = inputs["attention_mask"].unsqueeze(-1).expand_as(student_logits).bool()
+
+            student_logits_flat = torch.masked_select(student_logits, attn_mask_reshaped)
+            student_logits_unbatched = student_logits_flat.reshape(-1, student_logits.shape[-1])
+
+            # we flatten the batch, to get the class scores & probabilities to the 2nd dimension
+            teacher_probs_flat = torch.masked_select(teacher_probs, attn_mask_reshaped)
+            teacher_probs_unbatched = teacher_probs_flat.reshape(-1, student_logits.shape[-1])
+        else:
+            # we flatten the batch, to get the class scores & probabilities to the 2nd dimension
+            student_logits_unbatched = student_logits.flatten(end_dim=1)
+            teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
+
+        distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
+                              teacher_probs_unbatched) * self.temperature ** 2
+        distil_loss = self.logits_ce_loss_weight * distil_loss
+        # end output logits' loss
+
+        if self.add_hidden_states_loss:
+            # hidden states loss
+            student_inputs = inspect.getfullargspec(self.compatible_head_model.forward).args
+            student_outputs = self.compatible_head_model(**{k: v for k, v in inputs.items() if k in student_inputs})
+
+            hidden_loss = self._hidden_states_loss(student_outputs, teacher_outputs, inputs["attention_mask"])
+            hidden_loss_scaled = self.hidden_cossim_loss_weight * hidden_loss
+
+            distil_loss = distil_loss + hidden_loss_scaled
+
+        return distil_loss
+
 
