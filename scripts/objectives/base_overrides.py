@@ -164,8 +164,10 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
 
 class DistilledCLM(Distillation, BaselineCLM):
 
-    def __init__(self, *args, force_true_tokens: bool = False, **kwargs) -> None:
+    def __init__(self, *args, force_true_tokens: bool = False,
+                 force_false_tokens: bool = False, **kwargs) -> None:
         self.force_true_tokens = force_true_tokens
+        self.force_false_tokens = force_false_tokens
         super().__init__(*args, **kwargs)
 
     def _compute_loss(self,
@@ -190,6 +192,14 @@ class DistilledCLM(Distillation, BaselineCLM):
             teacher_probs_f[ind0, inputs["input_ids"].flatten()] = 1.
             teacher_probs = teacher_probs_f.reshape(teacher_probs.shape)
 
+        if self.force_false_tokens:
+            ind0 = torch.arange(inputs["input_ids"].numel())
+            teacher_probs_f = teacher_probs.flatten(end_dim=1)
+            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f)
+            zeroed_teacher_probs[ind0, inputs["input_ids"].flatten()] = teacher_probs_f[ind0, inputs["input_ids"].flatten()]
+            teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
+
+        # TODO: with force_true_tokens, consider restrict_loss_to_mask!
         if self.restrict_loss_to_mask:
             # pick only the predictions of tokens on the attended positions (i.e. ignore the others)
             attn_mask_reshaped = inputs["attention_mask"].unsqueeze(-1).expand_as(student_logits).bool()

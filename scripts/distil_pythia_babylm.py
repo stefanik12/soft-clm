@@ -31,13 +31,15 @@ parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
 parser.add_argument("--train_texts", help="Training texts", type=str)
 parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
 parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
-parser.add_argument("--teacher_forced_distillation", help="Set probs of true toked in distillation to one.", type=str, default="False")
+parser.add_argument("--force_true_tokens", help="Set probs of true tokens in distillation to one.", type=str, default="False")
+parser.add_argument("--force_false_tokens", help="Set probs of false tokens in distillation to zero.", type=str, default="False")
 
 # TODO: this would be nice, but requires nontrivial rewrite of lm_eval.evaluator.simple_evaluate:
 # parser.add_argument("--eval_tasks_root", help="Root directory of lm_eval's evaluation tasks", type=str)
 
 args = parser.parse_args()
-args.teacher_forced_distillation = args.teacher_forced_distillation.lower() != "false"
+args.force_true_tokens = args.force_true_tokens.lower() != "false"
+args.force_false_tokens = args.force_false_tokens.lower() != "false"
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
@@ -70,7 +72,10 @@ if "soft-clm" in args.objective:
                                     similarities_weight=args.soft_clm_sim_weight))
 elif "distilled-clm" in args.objective:
     train_objectives.append(DistilledCLM(**objective_kwargs, val_evaluators=[evaluators],
-                                         force_true_tokens=args.teacher_forced_distillation))
+                                         force_true_tokens=args.force_true_tokens,
+                                         force_false_tokens=args.force_false_tokens,
+                                         # restrict_loss_to_mask=args.force_true_tokens  # TODO: try this also
+                                         ))
 
 baseline_kwargs = {k: v for k, v in objective_kwargs.items() if k != "teacher_model"}
 if not train_objectives:
