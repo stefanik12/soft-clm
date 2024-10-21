@@ -33,6 +33,7 @@ parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
 parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
 parser.add_argument("--force_true_tokens", help="Set probs of true tokens in distillation to one.", type=str, default="False")
 parser.add_argument("--force_false_tokens", help="Set probs of false tokens in distillation to zero.", type=str, default="False")
+parser.add_argument("--norm_attention", help="Whether to replace attention with NormAttention", type=str, default="False")
 
 # TODO: this would be nice, but requires nontrivial rewrite of lm_eval.evaluator.simple_evaluate:
 # parser.add_argument("--eval_tasks_root", help="Root directory of lm_eval's evaluation tasks", type=str)
@@ -40,6 +41,7 @@ parser.add_argument("--force_false_tokens", help="Set probs of false tokens in d
 args = parser.parse_args()
 args.force_true_tokens = args.force_true_tokens.lower() != "false"
 args.force_false_tokens = args.force_false_tokens.lower() != "false"
+args.norm_attention = args.norm_attention.lower() != "false"
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
@@ -101,6 +103,20 @@ if train_objectives[0].tokenizer.pad_token is None and train_objectives[0].token
     train_objectives[0].tokenizer.pad_token = "<|endoftext|>"
 # if hasattr(train_objectives[0], "teacher_model") and "pythia" in train_objectives[0].teacher_model.name_or_path:
 #     train_objectives[0].teacher_model.pad_token = "<|endoftext|>"
+
+if args.norm_attention:
+    from modeling.norm_attention import norm_attention_from_existing_module
+    from modeling.overrides import patch_modules_with_overrides
+
+    orig_model = train_objectives[0].compatible_head_model
+    orig_attn = next(obj for name, obj in orig_model.named_modules()
+                     if name.endswith("attention") or name.endswith("attn"))
+
+    new_attn_cls = norm_attention_from_existing_module(orig_attn.__class__)
+    new_attn_model = patch_modules_with_overrides(orig_model, orig_attn.__class__, new_attn_cls,
+                                                  {"min_scale": 3.})
+
+    train_objectives[0].compatible_head_model = new_attn_model
 
 
 training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir_root,
