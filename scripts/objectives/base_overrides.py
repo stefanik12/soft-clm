@@ -181,7 +181,7 @@ class DistilledCLM(Distillation, BaselineCLM):
 
         teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
 
-        device = self.compatible_head_model.device
+        device = student_logits.device
         if self.teacher_model.device != device:
             self.teacher_model = self.teacher_model.to(device)
 
