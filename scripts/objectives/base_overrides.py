@@ -180,22 +180,27 @@ class DistilledCLM(Distillation, BaselineCLM):
         ce_loss = CrossEntropyLoss()
 
         teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
+
+        device = self.compatible_head_model.device
+        if self.teacher_model.device != device:
+            self.teacher_model = self.teacher_model.to(device)
+
         with torch.no_grad():
-            teacher_outputs = self.teacher_model(**{k: v for k, v in inputs.items() if k in teacher_inputs})
+            teacher_outputs = self.teacher_model(**{k: v.to(device) for k, v in inputs.items() if k in teacher_inputs})
             teacher_logits = teacher_outputs.logits
             teacher_probs = softmax(teacher_logits / self.temperature, dim=-1)
 
         if self.force_true_tokens:
             # set the probabilities of all true tokens from the reference to one
-            ind0 = torch.arange(inputs["input_ids"].numel())
+            ind0 = torch.arange(inputs["input_ids"].numel(), device=device)
             teacher_probs_f = teacher_probs.flatten(end_dim=1)
             teacher_probs_f[ind0, inputs["input_ids"].flatten()] = 1.
             teacher_probs = teacher_probs_f.reshape(teacher_probs.shape)
 
         if self.force_false_tokens:
-            ind0 = torch.arange(inputs["input_ids"].numel())
+            ind0 = torch.arange(inputs["input_ids"].numel(), device=device)
             teacher_probs_f = teacher_probs.flatten(end_dim=1)
-            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f)
+            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f, dtype=device)
             zeroed_teacher_probs[ind0, inputs["input_ids"].flatten()] = teacher_probs_f[ind0, inputs["input_ids"].flatten()]
             teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
 
