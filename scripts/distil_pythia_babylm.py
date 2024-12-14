@@ -34,6 +34,7 @@ parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=fl
 parser.add_argument("--force_true_tokens", help="Set probs of true tokens in distillation to one.", type=str, default="False")
 parser.add_argument("--force_false_tokens", help="Set probs of false tokens in distillation to zero.", type=str, default="False")
 parser.add_argument("--norm_attention", help="Whether to replace attention with NormAttention", type=str, default="False")
+parser.add_argument("--rho_token_selection_ratio", help="Proportion of the tokens with the largest loss difference between student and teacher, used in training.", type=float, default=1.0)
 
 # TODO: this would be nice, but requires nontrivial rewrite of lm_eval.evaluator.simple_evaluate:
 # parser.add_argument("--eval_tasks_root", help="Root directory of lm_eval's evaluation tasks", type=str)
@@ -77,6 +78,7 @@ elif "distilled-clm" in args.objective:
                                          force_true_tokens=args.force_true_tokens,
                                          force_false_tokens=args.force_false_tokens,
                                          # restrict_loss_to_mask=args.force_true_tokens  # TODO: try this also
+                                         rho_token_selection_ratio=args.rho_token_selection_ratio,
                                          ))
 
 baseline_kwargs = {k: v for k, v in objective_kwargs.items() if k != "teacher_model"}

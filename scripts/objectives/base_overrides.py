@@ -165,9 +165,12 @@ class BaselineCLM(CausalLanguageModeling, ExperimentOverrides):
 class DistilledCLM(Distillation, BaselineCLM):
 
     def __init__(self, *args, force_true_tokens: bool = False,
-                 force_false_tokens: bool = False, **kwargs) -> None:
+                 force_false_tokens: bool = False,
+                 rho_token_selection_ratio: float = 1.0,
+                 **kwargs) -> None:
         self.force_true_tokens = force_true_tokens
         self.force_false_tokens = force_false_tokens
+        self.rho_token_selection_ratio = rho_token_selection_ratio
         super().__init__(*args, **kwargs)
 
     def _compute_loss(self,
@@ -177,7 +180,7 @@ class DistilledCLM(Distillation, BaselineCLM):
         assert inputs is not None, "Distillation loss requires model inputs to be passed"
 
         # output logits' loss
-        ce_loss = CrossEntropyLoss()
+        ce_loss = CrossEntropyLoss(reduction="none")
 
         teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
 
@@ -200,7 +203,7 @@ class DistilledCLM(Distillation, BaselineCLM):
         if self.force_false_tokens:
             ind0 = torch.arange(inputs["input_ids"].numel(), device=device)
             teacher_probs_f = teacher_probs.flatten(end_dim=1)
-            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f, dtype=device)
+            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f, device=device)
             zeroed_teacher_probs[ind0, inputs["input_ids"].flatten()] = teacher_probs_f[ind0, inputs["input_ids"].flatten()]
             teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
 
@@ -223,6 +226,18 @@ class DistilledCLM(Distillation, BaselineCLM):
         distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
                               teacher_probs_unbatched) * self.temperature ** 2
         distil_loss = self.logits_ce_loss_weight * distil_loss
+
+        if self.rho_token_selection_ratio != 1.0:
+            orig_teacher_probs = softmax(teacher_logits / self.temperature, dim=-1).flatten(end_dim=1)
+            teacher_loss = ce_loss(log_softmax(orig_teacher_probs / self.temperature, dim=-1),
+                                   teacher_probs_unbatched) * self.temperature ** 2
+            losses_delta = distil_loss - teacher_loss
+            threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
+
+            distil_loss = distil_loss[losses_delta > threshold]
+
+        distil_loss = distil_loss.mean()
+
         # end output logits' loss
 
         if self.add_hidden_states_loss:
