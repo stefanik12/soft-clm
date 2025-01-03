@@ -28,6 +28,7 @@ parser.add_argument("--batch_size", help="Used batch size", type=int, default=4)
 parser.add_argument("--lr", help="Used batch size", type=float, default=3e-4)
 parser.add_argument("--batch_aggregation", help="Batch aggregation", type=int, default=2)
 parser.add_argument("--eval_steps", help="Eval steps", type=int, default=100)
+parser.add_argument("--eval_samples_per_task", help="Number of samples per eval task", type=int, default=None)
 parser.add_argument("--train_texts", help="Training texts", type=str)
 parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
 parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
@@ -66,8 +67,10 @@ objective_kwargs = {
 if torch.cuda.is_available():
     objective_kwargs["teacher_model"] = objective_kwargs["teacher_model"].to("cuda:%s" % os.environ.get("LOCAL_RANK", 0))
 
-evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered'], batch_size=args.batch_size,
-                                debug_mode=args.base_model == "EleutherAI/pythia-14m")
+evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered'],
+                                batch_size=args.batch_size,
+                                limit=args.eval_samples_per_task,
+                                )
 
 train_objectives = []
 extra_eval_objectives = []
