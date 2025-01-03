@@ -8,6 +8,7 @@ import os
 
 import torch
 import transformers
+import wandb
 from adaptor.adapter import Adapter
 from adaptor.lang_module import LangModule
 from adaptor.schedules import ParallelSchedule
@@ -46,6 +47,8 @@ args.force_true_tokens = args.force_true_tokens.lower() != "false"
 args.force_false_tokens = args.force_false_tokens.lower() != "false"
 args.norm_attention = args.norm_attention.lower() != "false"
 args.restrict_loss_to_mask = args.restrict_loss_to_mask.lower() != "false"
+
+wandb_logger = wandb.init(project="babylm", entity="transformersclub", group="distillation", config=args)
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
