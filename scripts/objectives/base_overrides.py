@@ -180,7 +180,7 @@ class DistilledCLM(Distillation, BaselineCLM):
         assert inputs is not None, "Distillation loss requires model inputs to be passed"
 
         # output logits' loss
-        ce_loss = CrossEntropyLoss(reduction="none")
+        ce_loss = CrossEntropyLoss()
 
         teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
 
@@ -231,6 +231,7 @@ class DistilledCLM(Distillation, BaselineCLM):
             zeroed_teacher_probs = torch.zeros_like(teacher_probs_unbatched, device=device)
             zeroed_teacher_probs[ind0, labels_unbatched] = teacher_probs_unbatched[ind0, labels_unbatched]
             # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
+            teacher_probs_unbatched = zeroed_teacher_probs
 
         distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
                               teacher_probs_unbatched / self.temperature) * (self.temperature ** 2)
