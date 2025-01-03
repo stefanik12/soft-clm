@@ -191,21 +191,7 @@ class DistilledCLM(Distillation, BaselineCLM):
         with torch.no_grad():
             teacher_outputs = self.teacher_model(**{k: v.to(device) for k, v in inputs.items() if k in teacher_inputs})
             teacher_logits = teacher_outputs.logits
-            teacher_probs = softmax(teacher_logits / self.temperature, dim=-1)
-
-        if self.force_true_tokens:
-            # set the probabilities of all true tokens from the reference to one
-            ind0 = torch.arange(inputs["input_ids"].numel(), device=device)
-            teacher_probs_f = teacher_probs.flatten(end_dim=1)
-            teacher_probs_f[ind0, inputs["input_ids"].flatten()] = 1.
-            teacher_probs = teacher_probs_f.reshape(teacher_probs.shape)
-
-        if self.force_false_tokens:
-            ind0 = torch.arange(inputs["input_ids"].numel(), device=device)
-            teacher_probs_f = teacher_probs.flatten(end_dim=1)
-            zeroed_teacher_probs = torch.zeros_like(teacher_probs_f, device=device)
-            zeroed_teacher_probs[ind0, inputs["input_ids"].flatten()] = teacher_probs_f[ind0, inputs["input_ids"].flatten()]
-            teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
+            teacher_probs = softmax(teacher_logits, dim=-1)
 
         # TODO: with force_true_tokens, consider restrict_loss_to_mask!
         if self.restrict_loss_to_mask:
@@ -215,26 +201,53 @@ class DistilledCLM(Distillation, BaselineCLM):
             student_logits_flat = torch.masked_select(student_logits, attn_mask_reshaped)
             student_logits_unbatched = student_logits_flat.reshape(-1, student_logits.shape[-1])
 
+            teacher_logits_flat = torch.masked_select(teacher_logits, attn_mask_reshaped)
+            teacher_logits_unbatched = teacher_logits_flat.reshape(-1, teacher_logits.shape[-1])
+
             # we flatten the batch, to get the class scores & probabilities to the 2nd dimension
             teacher_probs_flat = torch.masked_select(teacher_probs, attn_mask_reshaped)
-            teacher_probs_unbatched = teacher_probs_flat.reshape(-1, student_logits.shape[-1])
+            teacher_probs_unbatched = teacher_probs_flat.reshape(-1, teacher_logits.shape[-1])
+
+            # new input_ids should not be used for inference, so we keep them separate
+            labels_unbatched = torch.masked_select(inputs["labels"], inputs["attention_mask"].bool())
+            labels_shifted = torch.masked_select(inputs["labels"][..., 1:], inputs["attention_mask"][..., :-1].bool())
         else:
             # we flatten the batch, to get the class scores & probabilities to the 2nd dimension
             student_logits_unbatched = student_logits.flatten(end_dim=1)
             teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
+            labels_unbatched = inputs["labels"].flatten()
+            labels_shifted = inputs["labels"][..., 1:]
+
+        if self.force_true_tokens:
+            # set the probabilities of all true tokens from the reference to one
+            ind0 = torch.arange(labels_unbatched.numel(), device=device)
+            # teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
+            teacher_probs_unbatched[ind0, labels_unbatched] = 1.
+            # teacher_probs = teacher_probs_unbatched.reshape(teacher_probs.shape)
+
+        if self.force_false_tokens:
+            ind0 = torch.arange(labels_unbatched.numel(), device=device)
+            # teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
+            zeroed_teacher_probs = torch.zeros_like(teacher_probs_unbatched, device=device)
+            zeroed_teacher_probs[ind0, labels_unbatched] = teacher_probs_unbatched[ind0, labels_unbatched]
+            # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
 
         distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
-                              teacher_probs_unbatched) * self.temperature ** 2
+                              teacher_probs_unbatched / self.temperature) * (self.temperature ** 2)
         distil_loss = self.logits_ce_loss_weight * distil_loss
 
         if self.rho_token_selection_ratio != 1.0:
-            orig_teacher_probs = softmax(teacher_logits / self.temperature, dim=-1).flatten(end_dim=1)
-            teacher_loss = ce_loss(log_softmax(orig_teacher_probs / self.temperature, dim=-1),
-                                   teacher_probs_unbatched) * self.temperature ** 2
-            losses_delta = distil_loss - teacher_loss
-            threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
+            # TODO: for the perfect reproducibility of the actual rho method, check that
+            #  with force_true_tokens==True and force_false_tokens==True, we perfectly match the loss of the baseline
 
-            distil_loss = distil_loss[losses_delta > threshold]
+            teacher_ce_loss = ce_loss(teacher_logits_unbatched[:labels_shifted.shape[0]], labels_shifted)
+            student_ce_loss = ce_loss(student_logits_unbatched[:labels_shifted.shape[0]], labels_shifted)
+
+            losses_delta = student_ce_loss - teacher_ce_loss
+            threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
+            # TODO: is the batch large enough? Is there some critical threshold for batch size here?
+            # done: take a look at the tokens that are included/excluded -- do they match expected aleatoric tokens?
+            distil_loss = distil_loss[:labels_shifted.shape[0]][losses_delta > threshold]
 
         distil_loss = distil_loss.mean()
 
@@ -242,6 +255,8 @@ class DistilledCLM(Distillation, BaselineCLM):
 
         if self.add_hidden_states_loss:
             # hidden states loss
+            # second inference is needed since the objectives' interface provides only output logits (not other outputs)
+            # currently, this does not consider restrict_loss_to_mask (but maybe we don't want that)
             student_inputs = inspect.getfullargspec(self.compatible_head_model.forward).args
             student_outputs = self.compatible_head_model(**{k: v for k, v in inputs.items() if k in student_inputs})
 

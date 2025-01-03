@@ -33,6 +33,7 @@ parser.add_argument("--val_texts", help="Perplexity validation texts", type=str)
 parser.add_argument("--soft_clm_sim_weight", help="Similarities weight", type=float, default=1.0)
 parser.add_argument("--force_true_tokens", help="Set probs of true tokens in distillation to one.", type=str, default="False")
 parser.add_argument("--force_false_tokens", help="Set probs of false tokens in distillation to zero.", type=str, default="False")
+parser.add_argument("--restrict_loss_to_mask", help="Whether to use only non-masked tokend in training.", type=str, default="False")
 parser.add_argument("--norm_attention", help="Whether to replace attention with NormAttention", type=str, default="False")
 parser.add_argument("--rho_token_selection_ratio", help="Proportion of the tokens with the largest loss difference between student and teacher, used in training.", type=float, default=1.0)
 
@@ -43,6 +44,7 @@ args = parser.parse_args()
 args.force_true_tokens = args.force_true_tokens.lower() != "false"
 args.force_false_tokens = args.force_false_tokens.lower() != "false"
 args.norm_attention = args.norm_attention.lower() != "false"
+args.restrict_loss_to_mask = args.restrict_loss_to_mask.lower() != "false"
 
 # model_path = "EleutherAI/pythia-160m"
 # model_path = "EleutherAI/pythia-14m"
@@ -77,7 +79,7 @@ elif "distilled-clm" in args.objective:
     train_objectives.append(DistilledCLM(**objective_kwargs, val_evaluators=[evaluators],
                                          force_true_tokens=args.force_true_tokens,
                                          force_false_tokens=args.force_false_tokens,
-                                         # restrict_loss_to_mask=args.force_true_tokens  # TODO: try this also
+                                         restrict_loss_to_mask=args.restrict_loss_to_mask,
                                          rho_token_selection_ratio=args.rho_token_selection_ratio,
                                          ))
 
