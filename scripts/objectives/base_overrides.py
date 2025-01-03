@@ -180,7 +180,7 @@ class DistilledCLM(Distillation, BaselineCLM):
         assert inputs is not None, "Distillation loss requires model inputs to be passed"
 
         # output logits' loss
-        ce_loss = CrossEntropyLoss()
+        ce_loss = CrossEntropyLoss(reduction="none")
 
         teacher_inputs = inspect.getfullargspec(self.teacher_model.forward).args
 
@@ -214,9 +214,10 @@ class DistilledCLM(Distillation, BaselineCLM):
         else:
             # we flatten the batch, to get the class scores & probabilities to the 2nd dimension
             student_logits_unbatched = student_logits.flatten(end_dim=1)
+            teacher_logits_unbatched = teacher_logits.flatten(end_dim=1)
             teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
             labels_unbatched = inputs["labels"].flatten()
-            labels_shifted = inputs["labels"][..., 1:]
+            labels_shifted = inputs["labels"][..., 1:].flatten()
 
         if self.force_true_tokens:
             # set the probabilities of all true tokens from the reference to one
@@ -232,8 +233,8 @@ class DistilledCLM(Distillation, BaselineCLM):
             zeroed_teacher_probs[ind0, labels_unbatched] = teacher_probs_unbatched[ind0, labels_unbatched]
             # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
             teacher_probs_unbatched = zeroed_teacher_probs
-
-        distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
+        # TODO: dropped log_softmax from distil_loss: must be tested and then merged to Adaptor's distillation!
+        distil_loss = ce_loss(student_logits_unbatched / self.temperature,
                               teacher_probs_unbatched / self.temperature) * (self.temperature ** 2)
         distil_loss = self.logits_ce_loss_weight * distil_loss
 
