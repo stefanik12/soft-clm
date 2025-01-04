@@ -70,7 +70,7 @@ objective_kwargs = {
 if torch.cuda.is_available():
     objective_kwargs["teacher_model"] = objective_kwargs["teacher_model"].to("cuda:%s" % os.environ.get("LOCAL_RANK", 0))
 
-evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered'],
+evaluators = LMHarnessEvaluator(tasks=['blimp_filtered', 'ewok_filtered', 'super-glue-lm-eval-v1'],
                                 batch_size=args.batch_size,
                                 limit=args.eval_samples_per_task,
                                 )

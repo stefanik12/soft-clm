@@ -35,7 +35,7 @@ class LMHarnessEvaluator(EvaluatorBase):
 
         # model.__class__ = orig_cls
 
-        return {k: v['acc,none'] for k, v in results["results"].items()}
+        return {k: v['f1,none'] if 'acc,none' not in v else v['acc,none'] for k, v in results["results"].items()}
 
     def __str__(self) -> str:
         return "Acc"
