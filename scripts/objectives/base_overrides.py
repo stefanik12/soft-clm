@@ -221,16 +221,16 @@ class DistilledCLM(Distillation, BaselineCLM):
 
         if self.force_true_tokens:
             # set the probabilities of all true tokens from the reference to one
-            ind0 = torch.arange(labels_unbatched.numel(), device=device)
+            ind0 = torch.arange(labels_shifted.numel(), device=device)
             # teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
-            teacher_probs_unbatched[ind0, labels_unbatched] = 1.
+            teacher_probs_unbatched[ind0, labels_shifted] = 1.  # TODO check: error by one?
             # teacher_probs = teacher_probs_unbatched.reshape(teacher_probs.shape)
 
         if self.force_false_tokens:
-            ind0 = torch.arange(labels_unbatched.numel(), device=device)
+            ind0 = torch.arange(labels_shifted.numel(), device=device)
             # teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
             zeroed_teacher_probs = torch.zeros_like(teacher_probs_unbatched, device=device)
-            zeroed_teacher_probs[ind0, labels_unbatched] = teacher_probs_unbatched[ind0, labels_unbatched]
+            zeroed_teacher_probs[ind0, labels_shifted] = teacher_probs_unbatched[ind0, labels_unbatched]
             # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
             teacher_probs_unbatched = zeroed_teacher_probs
         # TODO: dropped log_softmax from distil_loss: must be tested and then merged to Adaptor's distillation!
