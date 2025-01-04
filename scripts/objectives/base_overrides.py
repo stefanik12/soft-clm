@@ -230,7 +230,7 @@ class DistilledCLM(Distillation, BaselineCLM):
             ind0 = torch.arange(labels_shifted.numel(), device=device)
             # teacher_probs_unbatched = teacher_probs.flatten(end_dim=1)
             zeroed_teacher_probs = torch.zeros_like(teacher_probs_unbatched, device=device)
-            zeroed_teacher_probs[ind0, labels_shifted] = teacher_probs_unbatched[ind0, labels_unbatched]
+            zeroed_teacher_probs[ind0, labels_shifted] = teacher_probs_unbatched[ind0, labels_shifted]
             # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
             teacher_probs_unbatched = zeroed_teacher_probs
         # TODO: dropped log_softmax from distil_loss: must be tested and then merged to Adaptor's distillation!
