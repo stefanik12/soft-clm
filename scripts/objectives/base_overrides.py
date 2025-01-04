@@ -234,7 +234,7 @@ class DistilledCLM(Distillation, BaselineCLM):
             # teacher_probs = zeroed_teacher_probs.reshape(teacher_probs.shape)
             teacher_probs_unbatched = zeroed_teacher_probs
         # TODO: dropped log_softmax from distil_loss: must be tested and then merged to Adaptor's distillation!
-        distil_loss = ce_loss(student_logits_unbatched / self.temperature,
+        distil_loss = ce_loss(log_softmax(student_logits_unbatched / self.temperature, dim=-1),
                               teacher_probs_unbatched / self.temperature) * (self.temperature ** 2)
         distil_loss = self.logits_ce_loss_weight * distil_loss
 
