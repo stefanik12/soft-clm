@@ -188,10 +188,16 @@ class DistilledCLM(Distillation, BaselineCLM):
         if self.teacher_model.device != device:
             self.teacher_model = self.teacher_model.to(device)
 
-        with torch.no_grad():
-            teacher_outputs = self.teacher_model(**{k: v.to(device) for k, v in inputs.items() if k in teacher_inputs})
-            teacher_logits = teacher_outputs.logits
-            teacher_probs = softmax(teacher_logits, dim=-1)
+        if self.force_true_tokens and self.force_false_tokens:
+            # baseline training: if we don't use either true or false tokens of the teacher,
+            # we do not need to do inference with the teacher model at all!
+            teacher_logits = torch.zeros_like(student_logits)
+            teacher_probs = torch.zeros_like(student_logits)
+        else:
+            with torch.no_grad():
+                teacher_outputs = self.teacher_model(**{k: v.to(device) for k, v in inputs.items() if k in teacher_inputs})
+                teacher_logits = teacher_outputs.logits
+                teacher_probs = softmax(teacher_logits, dim=-1)
 
         # TODO: with force_true_tokens, consider restrict_loss_to_mask!
         if self.restrict_loss_to_mask:
