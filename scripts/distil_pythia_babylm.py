@@ -129,8 +129,10 @@ if args.norm_attention:
     train_objectives[0].compatible_head_model = new_attn_model
 
 
-training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir_root,
-                                                                 "%s_checkpoints" % "+".join([str(o) for o in train_objectives])),
+checkpoints_subdir = "%s_checkpoints" % "+".join([str(o) for o in train_objectives]) \
+                     if not (args.force_true_tokens and args.force_true_tokens) else "forced_baseline_checkpoints"
+
+training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir_root, checkpoints_subdir),
                                          stopping_strategy=StoppingStrategy.ALL_OBJECTIVES_CONVERGED,
                                          do_train=True,
                                          do_eval=True,
