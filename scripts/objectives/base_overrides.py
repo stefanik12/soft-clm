@@ -188,8 +188,8 @@ class DistilledCLM(Distillation, BaselineCLM):
         if self.teacher_model.device != device:
             self.teacher_model = self.teacher_model.to(device)
 
-        if self.force_true_tokens and self.force_false_tokens:
-            # baseline training: if we don't use either true or false tokens of the teacher,
+        if self.force_true_tokens and self.force_false_tokens and self.rho_token_selection_ratio == 1.0:
+            # baseline training: if we don't use either true or false tokens of the teacher, or rho,
             # we do not need to do inference with the teacher model at all!
             teacher_logits = torch.zeros_like(student_logits)
             teacher_probs = torch.zeros_like(student_logits)
