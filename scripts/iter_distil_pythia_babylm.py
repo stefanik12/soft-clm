@@ -134,7 +134,7 @@ training_arguments = AdaptationArguments(output_dir=os.path.join(args.output_dir
                                          # note that on lumi, we overrode transformers.**.is_torch_bf16_gpu_available
                                          bf16=torch.cuda.is_available(),
                                          no_cuda=not torch.cuda.is_available(),
-                                         max_steps=500 if not torch.cuda.is_available() else None,
+                                         max_steps=500 if not torch.cuda.is_available() else 0,
                                          )
 schedule = ContinuedSchedule(train_objectives, training_arguments, extra_eval_objectives)
 
