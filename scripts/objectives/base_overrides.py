@@ -255,7 +255,7 @@ class DistilledCLM(Distillation, BaselineCLM):
             threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
             # TODO: is the batch large enough? Is there some critical threshold for batch size here?
             # done: take a look at the tokens that are included/excluded -- do they match expected aleatoric tokens?
-            distil_loss = distil_loss[:labels_shifted.shape[0]][losses_delta > threshold]
+            distil_loss = distil_loss[:labels_shifted.shape[0]][losses_delta >= threshold]
 
         distil_loss = distil_loss.mean()
 
@@ -274,5 +274,3 @@ class DistilledCLM(Distillation, BaselineCLM):
             distil_loss = distil_loss + hidden_loss_scaled
 
         return distil_loss
-
-
