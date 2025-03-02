@@ -69,8 +69,8 @@ class ContinuedSchedule(ParallelSchedule):
             if self.should_stop:
 
                 # 6. reset eval objective
-                eval_objective.evaluations_history = []
-                eval_objective.loss_history = []
+                eval_objective.evaluations_history = {"train": {}, "eval": {}}
+                eval_objective.loss_history = {"train": [], "eval": []}
                 # 7. change train and eval models according to the strategy
                 if self.rho_selection_strategy == "incremental":
                     new_generation_start_model = copy.deepcopy(train_objective.compatible_head_model)
@@ -83,7 +83,7 @@ class ContinuedSchedule(ParallelSchedule):
                     eval_objective.compatible_head_model = train_objective.compatible_head_model
 
                 # 8. continue training
-                print("Finished training Rho generation %s", generation)
+                print("Finished training Rho generation %s" % generation)
                 generation += 1
 
                 self.should_stop = False
