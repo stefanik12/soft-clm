@@ -168,7 +168,7 @@ class DistilledCLM(Distillation, BaselineCLM):
     def __init__(self, *args, force_true_tokens: bool = False,
                  force_false_tokens: bool = False,
                  rho_token_selection_ratio: float = 1.0,
-                 rho_threshold_batch_window: int = 4096,
+                 rho_threshold_batch_window: int = 512,
                  **kwargs) -> None:
         self.force_true_tokens = force_true_tokens
         self.force_false_tokens = force_false_tokens

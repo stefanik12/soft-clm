@@ -70,7 +70,7 @@ class ContinuedSchedule(ParallelSchedule):
 
                 # 6. reset eval objective
                 eval_objective.loss_history = {"train": [], "eval": []}
-                eval_objective.evaluations_history = {"train": {"loss": []}, "eval": {"loss": []}}
+                # eval_objective.evaluations_history = {"train": {"loss": []}, "eval": {"loss": []}}
                 eval_objective.evaluations_history = {k: {evaluator: []
                                                           for evaluator in eval_objective.evaluations_history[k].keys()}
                                                       for k in eval_objective.evaluations_history.keys()}
