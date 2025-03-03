@@ -1,4 +1,5 @@
 import inspect
+from collections import deque
 from typing import Any
 from typing import List, Union, Dict, Iterable, Optional
 
@@ -167,11 +168,13 @@ class DistilledCLM(Distillation, BaselineCLM):
     def __init__(self, *args, force_true_tokens: bool = False,
                  force_false_tokens: bool = False,
                  rho_token_selection_ratio: float = 1.0,
+                 rho_threshold_batch_window: int = 4096,
                  **kwargs) -> None:
         self.force_true_tokens = force_true_tokens
         self.force_false_tokens = force_false_tokens
         self.rho_token_selection_ratio = rho_token_selection_ratio
         super().__init__(*args, **kwargs)
+        self.running_rho_threshold_window = deque([], maxlen=rho_threshold_batch_window // self.batch_size)
 
     def _compute_loss(self,
                       student_logits: torch.FloatTensor,
@@ -245,6 +248,9 @@ class DistilledCLM(Distillation, BaselineCLM):
         distil_loss = self.logits_ce_loss_weight * distil_loss
 
         if self.rho_token_selection_ratio != 1.0:
+            # done: a scale of batch to compute threshold seems to make a large difference
+            #  consider aggregating the rho on a running basis, perhaps to the size of common pre-training batch_sizes
+
             # TODO: for the perfect reproducibility of the actual rho method, check that
             #  with force_true_tokens==True and force_false_tokens==True, we perfectly match the loss of the baseline
 
@@ -252,10 +258,12 @@ class DistilledCLM(Distillation, BaselineCLM):
             student_ce_loss = ce_loss(student_logits_unbatched[:labels_shifted.shape[0]], labels_shifted)
 
             losses_delta = student_ce_loss - teacher_ce_loss
-            threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
-            # TODO: is the batch large enough? Is there some critical threshold for batch size here?
+            batch_threshold = torch.quantile(losses_delta, 1 - self.rho_token_selection_ratio)
+            self.running_rho_threshold_window.append(batch_threshold)
+
             # done: take a look at the tokens that are included/excluded -- do they match expected aleatoric tokens?
-            distil_loss = distil_loss[:labels_shifted.shape[0]][losses_delta >= threshold]
+            current_threshold = sum(self.running_rho_threshold_window) / len(self.running_rho_threshold_window)
+            distil_loss = distil_loss[:labels_shifted.shape[0]][losses_delta >= current_threshold]
 
         distil_loss = distil_loss.mean()
 
